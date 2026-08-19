@@ -1,4 +1,4 @@
-// Type definitions for thinConsole v1.1.0
+// Type definitions for thinConsole v1.3.0
 // Project: thinConsole - A lightweight mobile web debugging console
 // UMD module: supports CommonJS, AMD, and global (browser window.thinConsole)
 
