@@ -1,4 +1,4 @@
-// Type definitions for thinConsole v1.3.5
+// Type definitions for thinConsole v1.3.6
 // Project: thinConsole - A lightweight mobile web debugging console
 // UMD module: supports CommonJS, AMD, and global (browser window.thinConsole)
 
@@ -35,10 +35,49 @@ declare class thinConsole {
   copyElementHTML(element: Element): void;
   expandToElement(element: Node): void;
   getShadowRoot(element: Element): thinConsole.ShadowRootInfo | null;
-  registerPlugin(id: string, pluginClass: any, config?: any): thinConsole;
+  registerPlugin(id: string, pluginClass: any): thinConsole;
   disablePlugin(id: string): thinConsole;
   enablePlugin(id: string): thinConsole;
   destroyPlugin(id: string): void;
+
+  /**
+   * Override existing icons or add new ones.
+   * Icons are shared globally — overrides affect all panels.
+   *
+   * @param icons Object mapping icon names to "viewBox|path.d" strings
+   * @throws Error if `icons` is not an object, or any value doesn't contain "|"
+   *
+   * @example
+   * tC.applyIcon({
+   *   "my-icon": "0 0 24 24|M10 2L4 8",
+   *   "info-circle": "0 0 512 512|..."  // override existing
+   * })
+   */
+  applyIcon(icons: Record<string, string>): void;
+
+  /**
+   * Set the icon for a filter button by its filter ID.
+   * The icon name must already exist in the icon map
+   * (use `applyIcon` to add new icons first).
+   *
+   * @param filterId The filter button's id (data-type, data-ls-type, data-orig, or data-net-filter)
+   * @param iconName An existing icon name from the icon map
+   * @returns true if the filter was found and updated, false otherwise
+   * @throws Error if the icon name doesn't exist
+   */
+  setFilterIcon(filterId: string, iconName: string): boolean;
+
+  /**
+   * Create a sandboxed proxy of the thinConsole instance.
+   * Blocks get/set/delete on `options` and `pluginOption` properties.
+   * All other methods are available with proper `this` binding.
+   * Used internally when instantiating plugins.
+   * @param tC The real thinConsole instance
+   * @returns Sandboxed proxy
+   */
+  createSandbox(tC: thinConsole): thinConsole.Sandbox;
+
+
   triggerGlobalHook(name: thinConsole.HookName, ...args: any[]): thinConsole;
   renderJSONTree(
     obj: any,
@@ -80,6 +119,107 @@ declare class thinConsole {
     isPlugin: boolean
   ): void;
 
+  /**
+   * Apply custom CSS inside the Shadow DOM scope.
+   * Plugin authors use this to add styles that won't leak to the host page
+   * and won't be affected by host page styles.
+   * @param css CSS string to inject into the shadow root
+   * @returns The created <style> element (can be removed later if needed)
+   */
+  applyCSS(css: string): HTMLStyleElement;
+
+  /**
+   * Create a virtual scrolling list for efficient rendering of large datasets.
+   * Only visible items (plus a small buffer) are rendered in the DOM.
+   * Internally uses vsInit + vsUpdate + vsRender for the same smooth scrolling
+   * experience as the built-in console, localStorage, and network panels.
+   *
+   * @param container The scrollable container element (plugin's own container)
+   * @param options Configuration object
+   * @param options.renderItem Function that creates a DOM element (or HTML string) for a data item
+   * @param options.initialData Initial array of data items (default: [])
+   * @param options.itemHeight Estimated item height in px (auto-measured if omitted)
+   * @param options.emptyHTML HTML to show when items array is empty (default: "")
+   * @param options.trackBy Key extraction function for precise item identity comparison
+   *   (default: item => item.id). Avoids unnecessary full re-renders when data
+   *   changes only partially.
+   * @returns Virtual list controller with update/render/destroy methods
+   */
+  createVirtualList(
+    container: HTMLElement,
+    options: {
+      renderItem: (item: any) => HTMLElement | string;
+      initialData?: any[];
+      itemHeight?: number;
+      emptyHTML?: string;
+      trackBy?: (item: any) => string | number;
+    }
+  ): {
+    /** Update items (and optionally change renderFn). Empty items shows emptyHTML. */
+    update(items: any[], renderFn?: (item: any) => HTMLElement | string): void;
+    /** Force re-render (e.g. after tree expand/collapse or resize) */
+    render(): void;
+    /** Cleanup: remove scroll listener, delete _vs state, prevent memory leaks */
+    destroy(): void;
+  };
+
+  /**
+   * Initialize virtual scrolling infrastructure for a container.
+   * Creates spacer elements, content element, and scroll listener.
+   * Merges isNearBottom logic as an inline internal check.
+   * @param container The container element to apply virtual scrolling to
+   */
+  vsInit(container: HTMLElement): void;
+
+  /**
+   * Core render loop for a virtual scroll container.
+   * Calculates visible range, measures heights, renders items, updates spacers.
+   * Merges vsRefreshHeights: re-measures rendered children on each call,
+   * and updates spacers even when visible range is unchanged.
+   * @param container The virtual scroll container
+   */
+  vsRender(container: HTMLElement): void;
+
+  /**
+   * Unified update entry for virtual scroll containers.
+   * Merges vsSetItems + vsUpdateItems + vsShowMessage into one function.
+   *
+   * - If items is empty: shows emptyHTML (from opts), resets state.
+   * - If opts.force: full reset (scroll to top, re-render).
+   * - If user is at bottom: re-render and auto-scroll to bottom.
+   * - If items grew (same first item key): incremental bottom spacer update.
+   * - Otherwise: full re-render preserving scroll position.
+   *
+   * @param container The virtual scroll container
+   * @param items The array of items to display
+   * @param renderItem Function to render an item as HTML string (null when items is empty)
+   * @param avgHeight Average item height (optional)
+   * @param opts Options: { force?, emptyHTML?, trackBy?, preserveScroll? }
+   */
+  vsUpdate(
+    container: HTMLElement,
+    items: any[],
+    renderItem: ((item: any, index: number) => string) | null,
+    avgHeight?: number,
+    opts?: {
+      /** Force full reset (scroll to top, re-render) */
+      force?: boolean;
+      /** HTML to show when items array is empty */
+      emptyHTML?: string;
+      /** Key extraction function for item identity (default: item => item.id).
+       *  Stored in _vs after first call; used to detect if first item changed. */
+      trackBy?: (item: any) => string | number;
+      /** Preserve current scroll position (don't scroll to top or bottom).
+       *  Useful when loading more data or inserting items at the top. */
+      preserveScroll?: boolean;
+    }
+  ): void;
+
+  /** Shadow DOM host element (style isolation root) */
+  host: HTMLDivElement;
+  /** Shadow root for style isolation */
+  shadowRoot: ShadowRoot;
+
   // ---- Static properties ----
   static readonly version: string;
   static tC: thinConsole | null;
@@ -94,7 +234,7 @@ declare class thinConsole {
   static info(...args: any[]): typeof thinConsole;
   static warn(...args: any[]): typeof thinConsole;
   static error(...args: any[]): typeof thinConsole;
-  static addPlugin(id: string, pluginClass: any, config?: any): typeof thinConsole;
+  static addPlugin(id: string, pluginClass: any): typeof thinConsole;
   static addTabs(
     tabs: thinConsole.TabConfig | thinConsole.TabConfig[]
   ): typeof thinConsole;
@@ -139,6 +279,12 @@ declare namespace thinConsole {
     maxNetwork?: number;
     /** Custom console filter definitions */
     filters?: Filter[];
+    /**
+     * Per-plugin options, keyed by plugin ID.
+     * Values are passed through as-is (only object check).
+     * Plugins can access their options via `this.tC.options.pluginOption[this.id]`.
+     */
+    pluginOption?: Record<string, Record<string, any>>;
   }
 
   interface Filter {
@@ -237,14 +383,28 @@ declare namespace thinConsole {
 
   type HookCallback = (...args: any[]) => void;
 
+  // ============= Virtual List =============
+
   // ============= Plugin Base Class =============
 
   class tCPlugin {
-    constructor(tC: thinConsole, config?: any);
-    /** The thinConsole instance this plugin is bound to */
-    tC: thinConsole;
-    /** Plugin configuration object */
-    config: any;
+    /**
+     * @param tC A sandboxed thinConsole instance. The sandbox blocks
+     *   access to `options` and `pluginOption` on tC, preventing plugins
+     *   from reading or modifying global configuration. Plugins should
+     *   use `this.pluginOption` for their own config instead.
+     */
+    constructor(tC: thinConsole.Sandbox);
+    /** Sandboxed thinConsole instance (options/pluginOption blocked) */
+    tC: thinConsole.Sandbox;
+    /**
+     * This plugin's isolated config from options.pluginOption[pluginId].
+     * Set automatically before init() is called.
+     * Must be an object — non-object values are replaced with {}.
+     * Mutable: plugins can freely read and modify their own config.
+     * Default: {} if not configured or not an object.
+     */
+    pluginOption: Record<string, any>;
     /** Plugin ID (auto-derived from class name, lowercased) */
     id: string;
     /** Initialize plugin — override in subclass */
@@ -265,6 +425,20 @@ declare namespace thinConsole {
     destroy(): void;
     /** Define a tab for this plugin — override in subclass */
     addTab?(): PluginTab;
+  }
+
+  /**
+   * Sandboxed thinConsole proxy. Blocks access to `options` and
+   * `pluginOption` properties. All other methods work normally with
+   * proper `this` binding. Attempts to set/delete `options` or
+   * `pluginOption` are silently blocked; other property writes
+   * trigger a console warning.
+   */
+  interface Sandbox {
+    /** Marker: always true — check if a tC reference is sandboxed */
+    __isSandbox: true;
+    // All thinConsole instance methods are available except options/pluginOption
+    [key: string]: any;
   }
 }
 
