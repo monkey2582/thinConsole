@@ -1,4 +1,4 @@
-// Type definitions for thinConsole v1.3.4
+// Type definitions for thinConsole v1.3.5
 // Project: thinConsole - A lightweight mobile web debugging console
 // UMD module: supports CommonJS, AMD, and global (browser window.thinConsole)
 
@@ -67,6 +67,18 @@ declare class thinConsole {
    * @returns Object with filterCount (display string/number) and exactCount (raw number)
    */
   _fmtCount(n: number, plusK?: boolean): thinConsole.FilterCountResult;
+
+  /**
+   * Unified filter count updater for both built-in (console) and plugin tabs.
+   * @param container Filter button container (filterButtons or plugin view container)
+   * @param counts Count lookup object (type -> number | FilterCountResult)
+   * @param isPlugin If true, use plugin rendering (icon + orig); else console (cached HTML)
+   */
+  _updateFilterCounts(
+    container: HTMLElement | NodeListOf<Element> | null,
+    counts: Record<string, number | thinConsole.FilterCountResult> | null,
+    isPlugin: boolean
+  ): void;
 
   // ---- Static properties ----
   static readonly version: string;
