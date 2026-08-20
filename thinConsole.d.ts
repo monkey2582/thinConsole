@@ -1,4 +1,4 @@
-// Type definitions for thinConsole v1.3.0
+// Type definitions for thinConsole v1.3.4
 // Project: thinConsole - A lightweight mobile web debugging console
 // UMD module: supports CommonJS, AMD, and global (browser window.thinConsole)
 
@@ -18,6 +18,8 @@ declare class thinConsole {
   logs: thinConsole.LogEntry[];
   networkRequests: thinConsole.NetworkRequest[];
   maxLog: number;
+  /** Maximum number of network requests to retain (default: 1000) */
+  maxNetwork: number;
 
   // ---- Instance methods ----
   show(tab?: string): thinConsole;
@@ -55,6 +57,17 @@ declare class thinConsole {
   escapeHtml(str: string): string;
   captureConsole(type: string, ...args: any[]): void;
 
+  /**
+   * Format a count number into compact display.
+   * - <= 999: returns the number as-is
+   * - 1000-99999: returns K format with 1 decimal (e.g. "1K", "1.1K")
+   * - >= 100000: returns "XK+" (e.g. "100K+")
+   * @param n The exact count
+   * @param plusK If true, append "+" for K values (used by network/storage)
+   * @returns Object with filterCount (display string/number) and exactCount (raw number)
+   */
+  _fmtCount(n: number, plusK?: boolean): thinConsole.FilterCountResult;
+
   // ---- Static properties ----
   static readonly version: string;
   static tC: thinConsole | null;
@@ -81,7 +94,9 @@ declare class thinConsole {
     name: thinConsole.HookName,
     callback: thinConsole.HookCallback
   ): typeof thinConsole;
-  static setFilterCounts(counts: Record<string, number>): typeof thinConsole;
+  static setFilterCounts(
+    counts: Record<string, number | thinConsole.FilterCountResult>
+  ): typeof thinConsole;
 }
 
 declare namespace thinConsole {
@@ -108,6 +123,8 @@ declare namespace thinConsole {
     pos?: { x: number; y: number };
     /** Maximum number of log entries to retain (default: 1000) */
     maxLog?: number;
+    /** Maximum number of network requests to retain (default: 1000) */
+    maxNetwork?: number;
     /** Custom console filter definitions */
     filters?: Filter[];
   }
@@ -169,6 +186,25 @@ declare namespace thinConsole {
   interface ShadowRootInfo {
     root: ShadowRoot;
     mode: "open" | "closed";
+  }
+
+  // ============= Filter Count =============
+
+  /**
+   * Result of count formatting. Used by filter buttons to display
+   * a compact count in parentheses and the exact value on hover.
+   *
+   * - `filterCount`: displayed inside () on active filters
+   *   (string like "1K" / "1K+" / "100K+", or the raw number if <= 999)
+   * - `exactCount`: shown in the title (tooltip) on hover
+   *
+   * For built-in tabs (console, network, storage) this is auto-generated
+   * by `_fmtCount()`. For extension/plugin tabs, developers can pass
+   * custom objects via `setFilterCounts()` to control both values.
+   */
+  interface FilterCountResult {
+    filterCount: string | number;
+    exactCount: number;
   }
 
   // ============= Hooks =============
