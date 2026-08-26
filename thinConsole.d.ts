@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.4.2
+ * @version 1.4.3
  */
 
 declare namespace thinConsole {
@@ -45,6 +45,8 @@ declare namespace thinConsole {
     pluginOption?: Record<string, object>;
     /** Custom log filters (default null = builtin) */
     filters?: FilterConfig[] | null;
+    /** Enable element comments (default true) */
+    showComments?: boolean;
   }
 
   /** Storage backend interface (local / session / cookie) */
