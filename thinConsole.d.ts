@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.4.7
+ * @version 1.4.8
  */
 
 declare namespace thinConsole {
