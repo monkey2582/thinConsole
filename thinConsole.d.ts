@@ -1,7 +1,96 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.4.9
+ * @version 1.5.0
  */
+
+/**
+ * ThinConsole instance (the runtime export is an ES6 class, must be used with `new`)
+ */
+declare class thinConsole {
+
+    constructor(options?: thinConsole.Options);
+
+    /** Version string (e.g. "1.5.0") */
+    readonly version: string;
+
+    /** Current options (sanitized) */
+    readonly options: thinConsole.Options;
+
+    /** Current tab id */
+    currentTab: string;
+
+    /** Current theme id */
+    currentTheme: string;
+
+    /** Max log entries */
+    maxLog: number;
+
+    /** Max network request records */
+    maxNetwork: number;
+
+    /** Currently selected element */
+    selectedElement: Element | null;
+
+    /** Register & mount a plugin on this instance (same rules as the static addPlugin) */
+    addPlugin(name: string, plugin: typeof thinConsole.Plugin | ((tC: thinConsole.Sandbox) => void)): this;
+
+    /** Show the console overlay, optionally switching to a tab */
+    show(tab?: string): this;
+
+    /** Hide the console overlay */
+    hide(): this;
+
+    /** Destroy the instance and remove all DOM elements; mounted plugins get destroy() called */
+    destroy(): void;
+
+    /** Destroy this instance and create a NEW one with the given options (returns the new instance) */
+    setOption(options: thinConsole.Options): thinConsole;
+
+    /** Switch to a tab by id */
+    switchTab(tab: string): void;
+
+    /** Enable previously disabled plugin(s) - single name or array */
+    enablePlugin(name: string | string[]): this;
+
+    /** Disable & unload plugin(s) - single name or array (calls the plugin destroy()) */
+    disablePlugin(name: string | string[]): this;
+
+    /** Hide/restore log-type filter buttons: ban("warn") hides warn logs' filter; ban() resets all */
+    ban(type?: string, on?: boolean): this;
+
+    /** Show a toast notification */
+    showNotification(message: string, type?: string): void;
+
+    /** Send a new network request from the request editor */
+    sendNewRequest(): void;
+
+    /** Resend a previous network request */
+    resendRequest(req: thinConsole.NetRequest): void;
+
+    /** Apply custom icon overrides. Values must be "viewBox|path.d" format */
+    applyIcon(icons: Record<string, string>): void;
+
+    /** Trigger a global hook with arguments */
+    triggerGlobalHook(name: keyof thinConsole.HookMap, ...args: any[]): void;
+
+    /** Escape HTML special characters */
+    escapeHtml(str: string): string;
+
+    /** Safe JSON stringify with circular reference handling */
+    safeStringify(value: any, indent?: number, json?: boolean): string;
+
+    /** Get the icon SVG string */
+    icon(name: string, className?: string): string;
+
+    /** Append a <style> with the given CSS into the console shadow DOM */
+    applyCSS(css: string): HTMLStyleElement;
+
+    /** Build a virtual (windowed) list inside the scrollable container */
+    createVirtualList<T>(container: HTMLElement, options: thinConsole.VirtualListOptions<T>): thinConsole.VirtualListController<T>;
+
+    /** Storage accessor (local, session, cookie) */
+    readonly storage: thinConsole.StorageAccessor;
+}
 
 declare namespace thinConsole {
 
@@ -19,8 +108,6 @@ declare namespace thinConsole {
 
   /** Constructor options */
   interface Options {
-    /** Button text (max 11 chars, default "thinConsole") */
-    text?: string;
     /** Button background color (default "#007aff") */
     color?: string;
     /** Button width (default "auto") */
@@ -31,7 +118,7 @@ declare namespace thinConsole {
     theme?: string;
     /** Enable plugins (default true) */
     plugins?: boolean;
-    /** List of disabled plugin names (default []) */
+    /** List of disabled plugin names (default []). Blocks both pre- and post-instance registration, can be lifted via enablePlugin() */
     disabledPlugins?: string[];
     /** Enable JS execution (default true) */
     jsExecute?: boolean;
@@ -55,6 +142,7 @@ declare namespace thinConsole {
     set(key: string, value: string, days?: number): void;
     remove(key: string): void;
     clear(): void;
+    /** Number of stored entries (a function at runtime, not a property) */
     length(): number;
     key(index: number): string | null;
   }
@@ -129,10 +217,37 @@ declare namespace thinConsole {
     readonly __isSandbox: boolean;
   }
 
+  /** Options for the virtual list created via ThinConsole#createVirtualList */
+  interface VirtualListOptions<T> {
+    /** Initial data items (default []) */
+    initialData?: T[];
+    /** Fixed item height in px (used for window estimation) */
+    itemHeight: number;
+    /** Render one data item to an element or an HTML string */
+    renderItem: (item: T) => HTMLElement | string;
+    /** HTML injected when the list is empty */
+    emptyHTML?: string;
+    /** Function returning a stable key per item (default: (e) => e.id) */
+    trackBy?: (item: T) => string;
+  }
+
+  /** Controller returned by ThinConsole#createVirtualList */
+  interface VirtualListController<T> {
+    /** Replace the dataset (and optionally the render function) */
+    update(data?: T[], renderItem?: (item: T) => HTMLElement | string): void;
+    /** Force re-render of the visible window */
+    render(): void;
+    /** Remove listeners and virtual-list state from the container */
+    destroy(): void;
+  }
+
+  /** A single value inside the map passed to setFilterCounts */
+  type FilterCountValue = number | { filterCount: number; exactCount?: number };
+
   /**
    * Base plugin class. Extend this to create a class-based plugin.
    * ```ts
-   * class MyPlugin extends tCPlugin {
+   * class MyPlugin extends thinConsole.tCPlugin {
    *   init() { /* ... *\/ }
    *   addTab() { return { id: "my", name: "My Tab" }; }
    * }
@@ -142,6 +257,7 @@ declare namespace thinConsole {
   class Plugin {
     protected tC: ThinConsole;
     pluginOption: Record<string, object>;
+    /** Derived from the plugin class name (constructor.name.toLowerCase()) */
     id: string;
     constructor(tC: ThinConsole);
     init(): void;
@@ -154,159 +270,16 @@ declare namespace thinConsole {
     destroy(): void;
   }
 
-  /** ThinConsole instance */
-  class ThinConsole {
-    constructor(options?: Options);
+  /** ThinConsole instance type (back-compat alias of `thinConsole`) */
+  type ThinConsole = thinConsole;
 
-    /** Version string */
-    readonly version: string;
-
-    /** Current options (sanitized) */
-    readonly options: Options;
-
-    /** Current tab id */
-    currentTab: string;
-
-    /** Current theme id */
-    currentTheme: string;
-
-    /** Max log entries */
-    maxLog: number;
-
-    /** Max network request records */
-    maxNetwork: number;
-
-    /** Currently selected element */
-    selectedElement: Element | null;
-
-    /** Initialize the console (creates button + overlay) */
-    init(): void;
-
-    /** Show the console overlay, optionally switching to a tab */
-    show(tab?: string): this;
-
-    /** Hide the console overlay */
-    hide(): this;
-
-    /** Destroy the instance and remove all DOM elements */
-    destroy(): void;
-
-    /** Destroy and recreate with new options */
-    setOption(options: Options): this;
-
-    /** Switch to a tab by id */
-    switchTab(tab: string): void;
-
-    /** Show a toast notification */
-    showNotification(message: string, type?: string): void;
-
-    /** Toggle mute state for console logs */
-    toggleMute(): void;
-
-    /** Toggle search bar visibility */
-    toggleSearch(): void;
-
-    /** Run code from the title input */
-    runCode(): void;
-
-    /** Copy a log entry */
-    copyLog(id: string, plain?: boolean, raw?: boolean): void;
-
-    /** Clear all logs */
-    clearAllLogs(all?: boolean): void;
-
-    /** Add a localStorage item (opens editor) */
-    addLSItem(): void;
-
-    /** Edit a localStorage item by key */
-    editLSItem(key: string): void;
-
-    /** Save the current localStorage editor content */
-    saveLSItem(): void;
-
-    /** Remove a localStorage item by key */
-    removeLSItem(key: string): void;
-
-    /** Start the element picker mode */
-    startElementPicker(): void;
-
-    /** Expand the element tree to reveal a specific element */
-    expandToElement(el: Element): void;
-
-    /** Copy an element's HTML */
-    copyElementHTML(el: Element): void;
-
-    /** Delete an element from the DOM */
-    deleteElement(el: Element): void;
-
-    /** Start observing DOM mutations for element tree updates */
-    startElementObserver(): void;
-
-    /** Stop the element mutation observer */
-    stopElementObserver(): void;
-
-    /** Re-render current tab content */
-    renderContent(): void;
-
-    /** Capture XHR and fetch network requests */
-    captureNetworkRequests(): void;
-
-    /** Render the network request list */
-    renderNetworkList(): void;
-
-    /** Clear network requests (respects active filter) */
-    clearNetworkRequests(): void;
-
-    /** Send a new network request from the request editor */
-    sendNewRequest(): void;
-
-    /** Show network request detail panel */
-    showNetDetail(id: number): void;
-
-    /** Resend a previous network request */
-    resendRequest(req: NetRequest): void;
-
-    /** Apply custom icon overrides */
-    applyIcon(icons: Record<string, string>): void;
-
-    /** Set the icon for a specific filter button */
-    setFilterIcon(filterId: string, iconId: string): boolean;
-
-    /** Disable a plugin by name */
-    disablePlugin(name: string): this;
-
-    /** Enable a previously disabled plugin */
-    enablePlugin(name: string): this;
-
-    /** Trigger a global hook with arguments */
-    triggerGlobalHook(name: keyof HookMap, ...args: any[]): void;
-
-    /** Load a single plugin by name */
-    loadSinglePlugin(name: string): this;
-
-    /** Create a sandbox proxy for plugin isolation */
-    createSandbox(target: ThinConsole): Sandbox;
-
-    /** Escape HTML special characters */
-    escapeHtml(str: string): string;
-
-    /** Safe JSON stringify with circular reference handling */
-    safeStringify(value: any, indent?: number, json?: boolean): string;
-
-    /** Get the icon SVG string */
-    icon(name: string, className?: string): string;
-
-    /** Storage accessor (local, session, cookie) */
-    readonly storage: StorageAccessor;
-  }
-
-  // ---- Static API ----
+// ---- Static API ----
 
   /** Current singleton instance, or null */
   const tC: ThinConsole | null;
 
-  /** Registered plugins (class-based) */
-  const plugins: Record<string, typeof Plugin>;
+  /** Registered plugins (class or factory function), keyed by plugin name */
+  const plugins: Record<string, typeof Plugin | ((tC: Sandbox) => void)>;
 
   /** Registered themes */
   const themes: Record<string, ThemeConfig>;
@@ -316,6 +289,9 @@ declare namespace thinConsole {
 
   /** Global hook arrays */
   const hooks: HookMap;
+
+  /** The Plugin base class (also exposed as window.tCPlugin) */
+  const tCPlugin: typeof Plugin;
 
   /** Register a custom theme */
   function addTheme(
@@ -327,17 +303,20 @@ declare namespace thinConsole {
   /** Add a header button (max 5) */
   function addHeader(icon: string, fn?: () => void): typeof thinConsole;
 
-  /** Set options (destroys and recreates the singleton) */
-  function setOption(options: Options): typeof thinConsole;
+  /** Set options (destroys and recreates the singleton; returns the NEW instance) */
+  function setOption(options: Options): ThinConsole;
 
   /** Show the console overlay (static convenience) */
   function show(tab?: string): typeof thinConsole;
+
+  /** Hide/restore log-type filters on the current instance (no-op without an instance) */
+  function ban(type?: string, on?: boolean): typeof thinConsole;
 
   /** Hide the console overlay (static convenience) */
   function hide(): typeof thinConsole;
 
   /** Destroy the singleton (static convenience) */
-  function destroy(): typeof thinConsole;
+  function destroy(): void;
 
   /** console.log passthrough (static convenience) */
   function log(...args: any[]): typeof thinConsole;
@@ -351,17 +330,26 @@ declare namespace thinConsole {
   /** console.error passthrough (static convenience) */
   function error(...args: any[]): typeof thinConsole;
 
-  /** Register a plugin (class or function) */
+  /** Register a plugin (class or function). Works before AND after creating an instance */
   function addPlugin(name: string, plugin: typeof Plugin | ((tC: Sandbox) => void)): typeof thinConsole;
+
+  /** Enable previously disabled plugin(s) on the current instance - single name or array */
+  function enablePlugin(name: string | string[]): typeof thinConsole;
+
+  /** Disable & unload plugin(s) on the current instance - single name or array */
+  function disablePlugin(name: string | string[]): typeof thinConsole;
 
   /** Add custom tabs */
   function addTabs(tabs: TabConfig | TabConfig[]): typeof thinConsole;
+
+  /** Register a global hook handler */
+  function addHook(name: keyof HookMap, handler: HookHandler): typeof thinConsole;
+
+  /** Remove a global hook handler */
+  function removeHook(name: keyof HookMap, handler: HookHandler): typeof thinConsole;
+
+  /** Update the per-type filter counts shown on the current filter bar */
+  function setFilterCounts(counts: Record<string, FilterCountValue>): typeof thinConsole;
 }
-
-/** The Plugin base class, also available as window.tCPlugin */
-declare const tCPlugin: typeof thinConsole.Plugin;
-
-/** Main constructor: create or reuse the singleton */
-declare function thinConsole(options?: thinConsole.Options): thinConsole.ThinConsole;
 
 export = thinConsole;
