@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.5.1
+ * @version 1.5.2
  */
 
 /**
@@ -10,7 +10,7 @@ declare class thinConsole {
 
     constructor(options?: thinConsole.Options);
 
-    /** Version string (e.g. "1.5.0") */
+    /** Version string (e.g. "1.5.2") */
     readonly version: string;
 
     /** Current options (sanitized) */
@@ -28,11 +28,14 @@ declare class thinConsole {
     /** Max network request records */
     maxNetwork: number;
 
-    /** Currently selected element */
+    /** Currently selected element (Elements tab) */
     selectedElement: Element | null;
 
-    /** Register & mount a plugin on this instance (same rules as the static addPlugin) */
-    addPlugin(name: string, plugin: typeof thinConsole.Plugin | ((tC: thinConsole.Sandbox) => void)): this;
+    /** Shared store: plugin-visible writable state (get / set / subscribe) */
+    readonly store: thinConsole.Store;
+
+    /** Register & mount a class-based plugin on this instance. Only classes extending tCPlugin are accepted (function plugins were removed — use hooks instead) */
+    addPlugin(name: string, plugin: typeof thinConsole.Plugin): this;
 
     /** Show the console overlay, optionally switching to a tab */
     show(tab?: string): this;
@@ -55,6 +58,9 @@ declare class thinConsole {
     /** Disable & unload plugin(s) - single name or array (calls the plugin destroy()) */
     disablePlugin(name: string | string[]): this;
 
+    /** Unload & remove a mounted plugin entirely (calls plugin destroy(), removes its tab UI) */
+    destroyPlugin(name: string): this;
+
     /** Hide/restore log-type filter buttons: ban("warn") hides warn logs' filter; ban() resets all */
     ban(type?: string, on?: boolean): this;
 
@@ -70,8 +76,14 @@ declare class thinConsole {
     /** Apply custom icon overrides. Values must be "viewBox|path.d" format */
     applyIcon(icons: Record<string, string>): void;
 
-    /** Trigger a global hook with arguments */
-    triggerGlobalHook(name: keyof thinConsole.HookMap, ...args: any[]): void;
+    /**
+     * Trigger a hook by name. The name is auto-registered when it does not exist.
+     * Listeners registered via addHook are called with (...args); this = the thinConsole instance.
+     */
+    triggerHook(name: string, ...args: any[]): void;
+
+    /** Alias used internally: fire all listeners of a hook (auto-registers the name) */
+    triggerGlobalHook(name: string, ...args: any[]): void;
 
     /** Escape HTML special characters */
     escapeHtml(str: string): string;
@@ -165,32 +177,104 @@ declare namespace thinConsole {
     fn?: () => void;
   }
 
-  /** Hook names and their handler arrays */
-  interface HookMap {
-    beforeRender: HookHandler[];
-    afterRender: HookHandler[];
-    beforeLog: HookHandler[];
-    afterLog: HookHandler[];
-    beforeOpen: HookHandler[];
-    afterOpen: HookHandler[];
-    beforeClose: HookHandler[];
-    afterClose: HookHandler[];
-    beforeClear: HookHandler[];
-    afterClear: HookHandler[];
-    pluginMount: HookHandler[];
-    pluginUnmount: HookHandler[];
+  /** Subscriber callback used by store.subscribe: (newValue, key, oldValue) */
+  type StoreSubscriber = (value: any, key: string, oldValue: any) => void;
+
+  /**
+   * Shared store — plugin-visible writable state.
+   * Events (hooks) are read-only notifications; the store is the writable channel.
+   */
+  interface Store {
+    /** Read a key's value (single key → raw value) */
+    get(key: string): any;
+    /** Read multiple keys → object { key: value, ... } */
+    get(keys: string[]): Record<string, any>;
+
+    /**
+     * Write value(s). Keys may be an array (all get the same value; each key notifies once).
+     * writeable (3rd param) is a write-lock control:
+     *  - false → lock this key as private to the current caller (other plugins / anonymous tc.store writes are rejected with a console warning)
+     *  - true  → unlock (only the owner may unlock)
+     *  - omitted → leave the lock state unchanged
+     * Any successful set notifies every subscriber of the key — including the owner itself.
+     */
+    set(key: string | string[], value: any, writeable?: boolean): Store;
+
+    /**
+     * Delete key(s). Accepts a single key or an array (each key notifies its subscribers once with
+     * (undefined, key, oldValue)). Locked keys behave like set: only the owner may remove them, and
+     * an owner removal also clears the lock. Removing a non-existent key is a silent no-op.
+     */
+    remove(key: string | string[]): Store;
+
+    /**
+     * Lock / unlock key(s) without writing a value.
+     * Available on the shared store for API symmetry, but ONLY a plugin owner view (`this.store`)
+     * can actually change a lock — calling `tc.store.writeable(...)` is rejected with a warning.
+     * On the owner view: writeable(key, false) locks the key to this plugin; writeable(key, true)
+     * unlocks it (only the owning plugin may unlock; trying to lock/unlock another plugin's key is
+     * rejected with a warning). Accepts a single key or an array.
+     */
+    writeable(key: string | string[], writeable: boolean): Store;
+
+    /**
+     * Subscribe to key(s). Both keys and callbacks accept arrays (key[] × fn[] registers the full combination).
+     * Fired on every successful set with (value, key, oldValue); returns an unsubscribe function.
+     */
+    subscribe(key: string | string[], fn: StoreSubscriber | StoreSubscriber[]): () => void;
   }
 
-  type HookHandler = (...args: any[]) => void;
+  /**
+   * Owner view of the store injected into every mounted plugin instance (`this.store`).
+   * Shares the same data source as the shared store; `set(..., false)` locks the key to this plugin (owner).
+   */
+  interface StoreView {
+    get(key: string): any;
+    get(keys: string[]): Record<string, any>;
+    set(key: string | string[], value: any, writeable?: boolean): StoreView;
+    remove(key: string | string[]): StoreView;
+    /**
+     * Lock (false) / unlock (true) key(s) as this plugin. Only the owning plugin can change the lock.
+     */
+    writeable(key: string | string[], writeable: boolean): StoreView;
+    subscribe(key: string | string[], fn: StoreSubscriber | StoreSubscriber[]): () => void;
+  }
 
-  /** Custom tab configuration */
-  interface TabConfig {
+  /** Hook listener entry as stored internally (once listeners are auto-removed after the first trigger) */
+  interface HookEntry {
+    fn: HookHandler;
+    once: boolean;
+  }
+
+  /**
+   * Built-in hook names. Hook names are NOT pre-registered:
+   * addHook / triggerHook auto-create any unknown name (triggering once is enough to register it),
+   * so custom events can use arbitrary strings (recommended namespace: "plugin:event").
+   */
+  interface HookMap {
+    afterInit: HookEntry[];
+    beforeRender: HookEntry[];
+    afterRender: HookEntry[];
+    beforeLog: HookEntry[];
+    afterLog: HookEntry[];
+    beforeOpen: HookEntry[];
+    afterOpen: HookEntry[];
+    beforeClose: HookEntry[];
+    afterClose: HookEntry[];
+    beforeClear: HookEntry[];
+    afterClear: HookEntry[];
+    pluginMount: HookEntry[];
+    pluginUnmount: HookEntry[];
+  }
+
+  /** Hook handler. `this` is bound to the thinConsole instance at call time */
+  type HookHandler = (this: ThinConsole, ...args: any[]) => void;
+
+  /** Tab descriptor returned by a plugin's addTab() (the only supported way to add a custom tab now) */
+  interface TabDescriptor {
     id: string;
     name: string;
     icon?: string;
-    render?(container: HTMLElement): void;
-    html?: string;
-    onShow?(): void;
   }
 
   /** Network request record */
@@ -210,7 +294,11 @@ declare namespace thinConsole {
     error: string | null;
   }
 
-  /** Sandbox proxy that exposes instance API to plugins safely */
+  /**
+   * Sandbox proxy handed to a plugin's constructor (and exposed as `plugin.tC`).
+   * It behaves like the thinConsole instance but blocks writes to `options` / `pluginOption`
+   * and marks itself with `__isSandbox`. In type-land it is interchangeable with ThinConsole.
+   */
   interface Sandbox {
     tC: ThinConsole;
     pluginOption: Record<string, object>;
@@ -248,19 +336,28 @@ declare namespace thinConsole {
    * Base plugin class. Extend this to create a class-based plugin.
    * ```ts
    * class MyPlugin extends thinConsole.tCPlugin {
-   *   init() { /* ... *\/ }
-   *   addTab() { return { id: "my", name: "My Tab" }; }
+   *   init() { this.store.set('theme', '#007aff'); }        // owner store view
+   *   addTab() { return { id: 'my', name: 'My Tab' }; }     // optional: creates a tab
+   *   render(el) { el.innerHTML = '<p>hello</p>'; }         // called on tab switch
+   *   onShow()  {}
+   *   onHide()  {}
+   *   destroy() {}
    * }
-   * thinConsole.addPlugin("my", MyPlugin);
+   * thinConsole.addPlugin('my', MyPlugin);                  // only classes are accepted
    * ```
    */
   class Plugin {
+    /** Sandboxed instance API (reads behave like the thinConsole instance; options/pluginOption writes are blocked) */
     protected tC: ThinConsole;
     pluginOption: Record<string, object>;
+    /** Owner store view — shares data with tc.store; set(key, v, false) locks the key to this plugin */
+    readonly store: StoreView;
     /** Derived from the plugin class name (constructor.name.toLowerCase()) */
     id: string;
-    constructor(tC: ThinConsole);
+    constructor(tC: Sandbox | ThinConsole);
     init(): void;
+    /** Return a tab descriptor to add a custom tab for this plugin */
+    addTab?(): TabDescriptor;
     iszh(): boolean;
     isen(): boolean;
     isMobile(): boolean;
@@ -278,8 +375,8 @@ declare namespace thinConsole {
   /** Current singleton instance, or null */
   const tC: ThinConsole | null;
 
-  /** Registered plugins (class or factory function), keyed by plugin name */
-  const plugins: Record<string, typeof Plugin | ((tC: Sandbox) => void)>;
+  /** Registered plugins (classes only, keyed by plugin name) */
+  const plugins: Record<string, typeof Plugin>;
 
   /** Registered themes */
   const themes: Record<string, ThemeConfig>;
@@ -287,7 +384,7 @@ declare namespace thinConsole {
   /** Registered header buttons (max 5) */
   const headerButtons: HeaderButton[];
 
-  /** Global hook arrays */
+  /** Global hook arrays (built-in hooks pre-seeded; custom names auto-create on addHook/triggerHook) */
   const hooks: HookMap;
 
   /** The Plugin base class (also exposed as window.tCPlugin) */
@@ -330,8 +427,12 @@ declare namespace thinConsole {
   /** console.error passthrough (static convenience) */
   function error(...args: any[]): typeof thinConsole;
 
-  /** Register a plugin (class or function). Works before AND after creating an instance */
-  function addPlugin(name: string, plugin: typeof Plugin | ((tC: Sandbox) => void)): typeof thinConsole;
+  /**
+   * Register a class-based plugin. Works before AND after creating an instance.
+   * Only classes extending tCPlugin are accepted — function (micro) plugins were removed;
+   * use addHook('afterInit', ...) or hooks for one-shot bootstrap code.
+   */
+  function addPlugin(name: string, plugin: typeof Plugin): typeof thinConsole;
 
   /** Enable previously disabled plugin(s) on the current instance - single name or array */
   function enablePlugin(name: string | string[]): typeof thinConsole;
@@ -339,14 +440,22 @@ declare namespace thinConsole {
   /** Disable & unload plugin(s) on the current instance - single name or array */
   function disablePlugin(name: string | string[]): typeof thinConsole;
 
-  /** Add custom tabs */
-  function addTabs(tabs: TabConfig | TabConfig[]): typeof thinConsole;
+  /**
+   * Register a hook listener. `name` may be any string — unknown names are auto-created
+   * (no defineHook needed). Pass `once = true` to auto-remove after the first trigger (default false).
+   * The handler receives all triggerHook arguments with `this` bound to the thinConsole instance.
+   */
+  function addHook(name: string, handler: HookHandler, once?: boolean): typeof thinConsole;
 
-  /** Register a global hook handler */
-  function addHook(name: keyof HookMap, handler: HookHandler): typeof thinConsole;
+  /** Remove a previously added hook listener (matched by function reference) */
+  function removeHook(name: string, handler: HookHandler): typeof thinConsole;
 
-  /** Remove a global hook handler */
-  function removeHook(name: keyof HookMap, handler: HookHandler): typeof thinConsole;
+  /**
+   * Trigger a hook with arguments (listeners receive them). Auto-registers the name if missing.
+   * No-op with a console warning when no instance exists yet (the name is still registered).
+   * Hooks are read-only notifications — to share mutable state between plugins use the store instead.
+   */
+  function triggerHook(name: string, ...args: any[]): typeof thinConsole;
 
   /** Update the per-type filter counts shown on the current filter bar */
   function setFilterCounts(counts: Record<string, FilterCountValue>): typeof thinConsole;
