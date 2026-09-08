@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.5.2
+ * @version 1.5.3
  */
 
 /**
@@ -10,7 +10,7 @@ declare class thinConsole {
 
     constructor(options?: thinConsole.Options);
 
-    /** Version string (e.g. "1.5.2") */
+    /** Version string (e.g. "1.5.3") */
     readonly version: string;
 
     /** Current options (sanitized) */
@@ -192,8 +192,9 @@ declare namespace thinConsole {
 
     /**
      * Write value(s). Keys may be an array (all get the same value; each key notifies once).
+     * A successful set records the caller as the key's OWNER (anonymous tc.store calls → public key).
      * writeable (3rd param) is a write-lock control:
-     *  - false → lock this key as private to the current caller (other plugins / anonymous tc.store writes are rejected with a console warning)
+     *  - false → lock this key as private to the current caller (only meaningful from a plugin owner view)
      *  - true  → unlock (only the owner may unlock)
      *  - omitted → leave the lock state unchanged
      * Any successful set notifies every subscriber of the key — including the owner itself.
@@ -201,11 +202,19 @@ declare namespace thinConsole {
     set(key: string | string[], value: any, writeable?: boolean): Store;
 
     /**
-     * Delete key(s). Accepts a single key or an array (each key notifies its subscribers once with
-     * (undefined, key, oldValue)). Locked keys behave like set: only the owner may remove them, and
-     * an owner removal also clears the lock. Removing a non-existent key is a silent no-op.
+     * Delete key(s) — single key or array. Only the OWNER may remove a key it wrote (or holds the
+     * writeable lock on); public keys (created by anonymous tc.store.set) can be removed by anyone.
+     * Other plugins' keys are rejected with a console warning. A successful remove notifies the key's
+     * subscribers once with (undefined, key, oldValue) and then AUTO-UNBINDS all of that key's
+     * subscriptions. Removing a non-existent key is a silent no-op.
      */
     remove(key: string | string[]): Store;
+
+    /**
+     * Unbind previously registered subscriber(s) — name/name[] × fn/fn[] (the full combination).
+     * Same as calling the returned off() from subscribe, but name-addressed.
+     */
+    unsubscribe(key: string | string[], fn: StoreSubscriber | StoreSubscriber[]): Store;
 
     /**
      * Lock / unlock key(s) without writing a value.
@@ -233,6 +242,7 @@ declare namespace thinConsole {
     get(keys: string[]): Record<string, any>;
     set(key: string | string[], value: any, writeable?: boolean): StoreView;
     remove(key: string | string[]): StoreView;
+    unsubscribe(key: string | string[], fn: StoreSubscriber | StoreSubscriber[]): StoreView;
     /**
      * Lock (false) / unlock (true) key(s) as this plugin. Only the owning plugin can change the lock.
      */
