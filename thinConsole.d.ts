@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.5.3
+ * @version 1.5.4
  */
 
 /**
@@ -10,7 +10,7 @@ declare class thinConsole {
 
     constructor(options?: thinConsole.Options);
 
-    /** Version string (e.g. "1.5.3") */
+    /** Version string (e.g. "1.5.4") */
     readonly version: string;
 
     /** Current options (sanitized) */
