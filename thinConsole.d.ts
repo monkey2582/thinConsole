@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.5.6
+ * @version 1.5.7
  */
 
 /**
