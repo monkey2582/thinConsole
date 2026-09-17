@@ -1,6 +1,6 @@
 /**
  * thinConsole - A lightweight web debugging console
- * @version 1.5.7
+ * @version 1.5.8
  */
 
 /**
@@ -10,7 +10,7 @@ declare class thinConsole {
 
     constructor(options?: thinConsole.Options);
 
-    /** Version string (e.g. "1.5.4") */
+    /** Version string, e.g. "1.5.8" (matches the built bundle) */
     readonly version: string;
 
     /** Current options (sanitized) */
@@ -37,20 +37,43 @@ declare class thinConsole {
     /** Register & mount a class-based plugin on this instance. Only classes extending tCPlugin are accepted (function plugins were removed — use hooks instead) */
     addPlugin(name: string, plugin: typeof thinConsole.Plugin): this;
 
-    /** Show the console overlay, optionally switching to a tab */
-    show(tab?: string): this;
+    /**
+     * Show the console overlay, optionally switching to a tab and to a specific filter.
+     *
+     * @param tab        Tab id ('console' | 'localstorage' | 'network' | 'elements' | plugin id)
+     * @param filterName Optional filter id inside that tab. If omitted/empty/nonexistent,
+     *                   only the tab is switched and the current filter is left untouched.
+     *                   Built-in filter ids:
+     *                     console      → 'all' | 'log' | 'info' | 'warn' | 'error'
+     *                     network      → 'all' | 'get' | 'post' | 'put' | 'success' | 'failed'
+     *                     localstorage → 'local' | 'session' | 'cookie'
+     */
+    show(tab?: string, filterName?: string): this;
 
     /** Hide the console overlay */
     hide(): this;
 
-    /** Destroy the instance and remove all DOM elements; mounted plugins get destroy() called */
+    /**
+     * Destroy the instance and remove all DOM elements; mounted plugins get destroy() called.
+     *
+     * NOTE: only acts when this instance is the current singleton (tC === this).
+     * Calling it on a stale/non-current instance is a silent no-op.
+     */
     destroy(): void;
 
     /** Destroy this instance and create a NEW one with the given options (returns the new instance) */
     setOption(options: thinConsole.Options): thinConsole;
 
-    /** Switch to a tab by id */
-    switchTab(tab: string): void;
+    /**
+     * Switch to a tab by id, optionally also selecting a filter inside that tab.
+     *
+     * Named `switch` (not `switchTab`) because the scope is broader than "tabs":
+     * it moves to a tab AND, with the second argument, to a specific filter panel.
+     *
+     * @param tab        Tab id ('console' | 'localstorage' | 'network' | 'elements' | plugin id)
+     * @param filterName Optional filter id. If omitted/empty/nonexistent, only the tab is switched.
+     */
+    switch(tab: string, filterName?: string): void;
 
     /** Enable previously disabled plugin(s) - single name or array */
     enablePlugin(name: string | string[]): this;
@@ -61,7 +84,13 @@ declare class thinConsole {
     /** Unload & remove a mounted plugin entirely (calls plugin destroy(), removes its tab UI) */
     destroyPlugin(name: string): this;
 
-    /** Hide/restore log-type filter buttons: ban("warn") hides warn logs' filter; ban() resets all */
+    /**
+     * Hide / restore log-type filter buttons.
+     * `ban("warn")` hides the warn filter; `ban("warn", false)` restores it.
+     * Called with no arguments it defaults to ("all", true) — i.e. hides EVERY filter.
+     * @param type filter id, or "all" (default "all")
+     * @param on   true = hide, false = restore (default true)
+     */
     ban(type?: string, on?: boolean): this;
 
     /** Show a toast notification */
@@ -102,6 +131,16 @@ declare class thinConsole {
 
     /** Storage accessor (local, session, cookie) */
     readonly storage: thinConsole.StorageAccessor;
+
+    /**
+     * Switch the singleton to a tab, optionally also selecting a filter inside it (static convenience).
+     *
+     * Declared with a quoted name because `switch` is a reserved word — TypeScript only accepts it
+     * as a quoted member, so type-checked calls go through
+     * `thinConsole['switch']('network', 'all')`. The unquoted `thinConsole.switch(...)`
+     * works at runtime as well.
+     */
+    static 'switch'(tab: string, filterName?: string): typeof thinConsole;
 }
 
 declare namespace thinConsole {
@@ -171,10 +210,47 @@ declare namespace thinConsole {
     icons?: Record<string, string>;
   }
 
-  /** Header button configuration */
+  /** Header button declaration passed to addHeader (internal shape) */
   interface HeaderButton {
     icon: string;
-    fn?: () => void;
+    /** Extra CSS class(es) applied alongside 'header-icon-btn' — use it to target your own button */
+    cls?: string | null;
+    clickMethods?: (HeaderHandler | number)[] | null;
+    forTab?: string | null;
+    bound?: any[];
+    elEl?: HTMLElement | null;
+  }
+
+  /** Handler used by header buttons (bound to the underlying DOM event) */
+  type HeaderHandler = (ev?: Event) => void;
+
+  /**
+   * Controller returned by addHeader(). Chainable, and lets you bind/unbind DOM events
+   * on the created header button afterwards.
+   *
+   * NOTE: addHeader() does NOT return the thinConsole namespace — always keep this object
+   * if you need to remove() the button or attach extra events.
+   */
+  interface HeaderButtonController {
+    /** The internal descriptor (avoid mutating) */
+    readonly _d: HeaderButton;
+    /** Remove the button from the header bar and unbind its events */
+    remove(): HeaderButtonController;
+    /**
+     * Bind DOM event(s) to the button.
+     * `events` accepts a space/comma separated string or an array.
+     * `handler` may be a function, an array of functions, an array of numbers
+     * (indices into the original clickMethods), or a single number.
+     */
+    on(
+      events: string | string[],
+      handler?: HeaderHandler | (HeaderHandler | number)[] | number
+    ): HeaderButtonController;
+    /** Unbind previously bound event(s). Same argument shapes as on() */
+    off(
+      events: string | string[],
+      handler?: HeaderHandler | (HeaderHandler | number)[] | number
+    ): HeaderButtonController;
   }
 
   /** Subscriber callback used by store.subscribe: (newValue, key, oldValue) */
@@ -368,8 +444,19 @@ declare namespace thinConsole {
     init(): void;
     /** Return a tab descriptor to add a custom tab for this plugin */
     addTab?(): TabDescriptor;
+    /**
+     * Language hook — override these in your plugin if you branch on locale.
+     *
+     * IMPORTANT: the base implementation is NOT a runtime locale detection. It returns
+     * constants baked into the build:
+     *   - Chinese bundle: iszh() -> true,  isen() -> false
+     *   - English bundle: iszh() -> false, isen() -> true
+     * To follow the console's own UI language, call this.iszh() / this.isen()
+     * instead of inspecting navigator.language.
+     */
     iszh(): boolean;
     isen(): boolean;
+    /** True on touch/mobile user agents (iPad, Android, iPhone, iPod, BlackBerry, Opera Mini, …) */
     isMobile(): boolean;
     render(container: HTMLElement): void;
     onShow(): void;
@@ -391,7 +478,7 @@ declare namespace thinConsole {
   /** Registered themes */
   const themes: Record<string, ThemeConfig>;
 
-  /** Registered header buttons (max 5) */
+  /** Registered header buttons. NOTE: there is NO count limit — addHeader() appends, remove() frees the slot */
   const headerButtons: HeaderButton[];
 
   /** Global hook arrays (built-in hooks pre-seeded; custom names auto-create on addHook/triggerHook) */
@@ -407,16 +494,43 @@ declare namespace thinConsole {
     icons?: Record<string, string>
   ): typeof thinConsole;
 
-  /** Add a header button (max 5) */
-  function addHeader(icon: string, fn?: () => void): typeof thinConsole;
+  /**
+   * Add a header button. There is NO count limit — addHeader() always appends,
+   * and remove() releases the slot again (button count / DOM nodes / internal list stay in sync).
+   * Returns a HeaderButtonController — NOT the thinConsole namespace.
+   *
+   * Two call shapes are supported:
+   *   addHeader(icon, fn)             // legacy
+   *   addHeader(icon, cls, fn)        // preferred — `cls` is an extra class name
+   *                                   // applied besides 'header-icon-btn', so you can
+   *                                   // tell your own buttons apart (e.g. '.my-btn').
+   *
+   * @param icon  Icon name registered in the icon map
+   * @param cls   Extra CSS class name(s) for the button, or the handler when called as addHeader(icon, fn)
+   * @param fn    Optional handler. Accepts a function, an array of functions,
+   *              an array of numbers (indices into clickMethods), or a single number.
+   *              Defaults to no handler.
+   * @example
+   * const btn = thinConsole.addHeader('copy', 'btn-copy', () => alert('hi'));
+   * document.querySelector('.btn-copy');   // your button
+   * btn.off('click').remove();             // unbind and remove (slot is freed)
+   */
+  function addHeader(
+    icon: string,
+    cls?: string | null | HeaderHandler | (HeaderHandler | number)[] | number,
+    fn?: HeaderHandler | (HeaderHandler | number)[] | number
+  ): HeaderButtonController;
 
   /** Set options (destroys and recreates the singleton; returns the NEW instance) */
   function setOption(options: Options): ThinConsole;
 
-  /** Show the console overlay (static convenience) */
-  function show(tab?: string): typeof thinConsole;
+  /** Show the console overlay, optionally switching to a tab and to a specific filter (static convenience) */
+  function show(tab?: string, filterName?: string): typeof thinConsole;
 
-  /** Hide/restore log-type filters on the current instance (no-op without an instance) */
+  /**
+   * Hide/restore log-type filters on the current instance (no-op without an instance).
+   * Defaults to ("all", true) when called with no arguments — hides every filter.
+   */
   function ban(type?: string, on?: boolean): typeof thinConsole;
 
   /** Hide the console overlay (static convenience) */
