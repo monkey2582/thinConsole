@@ -1,286 +1,497 @@
-
 # thinConsole
 
-`thinConsole` 是一个轻量级、功能丰富的浏览器端 JavaScript 控制台增强库。它提供了一个可浮动的按钮，点击后可以展开一个功能强大的控制台面板，用于捕获和查看日志、管理本地存储（LocalStorage）、记录系统事件，并支持通过插件系统进行扩展。
+一个轻量级、零依赖的网页调试控制台。以悬浮按钮 + 侧边抽屉的形式注入页面，提供控制台日志、网络请求、本地存储、元素检查四大面板，并支持插件、主题、Hooks 与共享 Store 的扩展体系。
 
-## 功能特性
+· 🪶 轻量、零依赖，单文件引入
+· 🎨 Shadow DOM 隔离，样式不污染页面
+· 🖥️ 控制台 / 网络 / 存储 / 元素 四大内置面板
+· 🌐 自动接管 console.*、fetch、XMLHttpRequest
+· 🌳 强大的 JSON 树渲染（循环引用、Map/Set/WeakMap、Getter/Setter、[[Prototype]]）
+· 🧩 完整的插件系统（class-based plugin + 独立 Store 命名空间）
+· 🪝 全局 Hooks 体系（afterInit、beforeLog 等）
+· 🎭 主题系统（内置 dark / light / auto，可自定义）
+· 🖱️ 元素检查器：点选元素、复制 outerHTML、删除元素，支持 Shadow DOM
+· 📦 TypeScript 类型定义（thinConsole.d.ts）
 
-*   **📝 智能日志捕获**: 拦截并重写 `console.log`, `info`, `warn`, `error`，提供更美观、可交互的日志显示。
-*   **🎨 主题支持**: 提供亮色（Light）和暗色（Dark）两种主题。
-*   **🔍 日志过滤与搜索**: 可按日志类型（全部、日志、信息、警告、错误）过滤，并支持关键词和正则表达式搜索。
-*   **📂 多标签页管理**:
-    *   **控制台**: 查看所有捕获的应用程序日志。
-    *   **系统日志**: 查看标记为 `[system]` 的特殊日志。
-    *   **本地存储**: 可视化地查看、编辑、添加、删除和复制 LocalStorage 项，支持 JSON 高亮和类型显示。
-*   **🧩 插件系统**: 强大的插件架构，允许开发者轻松扩展控制台的功能，添加自定义标签页和逻辑。
-*   **⚙️ 丰富的配置**: 可通过构造函数选项自定义按钮文本、颜色、位置、主题等。
-*   **📋 交互操作**: 支持展开/收起对象、复制日志内容、一键清除所有日志等。
-*   **🎯 全局钩子 (Hooks)**: 提供多个生命周期钩子（如 `beforeLog`, `afterOpen`, `pluginMount` 等），便于在其他代码中监听和控制控制台的行为。
-*   **🖱️ 可拖动按钮**: 悬浮按钮可在屏幕上自由拖动。
+---
 
-## 安装与使用
+目录
 
-### 1. 引入库
+· 安装
+· 快速开始
+· 配置项
+· 面板说明
+  · 控制台 Console
+  · 网络 Network
+  · 存储 Storage
+  · 元素 Elements
+· 实例 API
+· 静态 API
+· 插件系统
+· 共享 Store
+· Hooks
+· 主题
+· 图标
+· TypeScript
 
-将 `thinConsole` 的源代码直接引入到你的 HTML 文件中。
+---
+
+安装
+
+通过 <script> 引入
 
 ```html
+<!-- 中文版 -->
+<script src="https://unpkg.com/thinconsole/dist/thinConsole.min.js"></script>
 
-<!DOCTYPE html>
-
-<html lang="zh-CN">
-
-<head>
-
-<meta charset="UTF-8">
-
-<title>My App with thinConsole</title>
-
-<!-- thinConsole 会自动注入所需样式和 Font Awesome -->
-
-</head>
-
-<body>
-
-<!-- 你的页面内容 -->
-
-<script src="path/to/thinconsole.js"></script>
-<script>
-    // 你的应用代码
-</script>
-
-</body>
-
-</html>
+<!-- 英文版 -->
+<script src="https://unpkg.com/thinconsole/dist/en.thinConsole.min.js"></script>
 ```
 
-### 2. 初始化
+引入后会自动挂载 window.thinConsole（以及 window.tCPlugin）。
 
-在您的 JavaScript 代码中，创建一个 `thinConsole` 实例。
+通过 npm
 
-```javascript
+```bash
+npm install thinconsole
+```
 
-// 使用默认配置
+```js
+import thinConsole from 'thinconsole';
+// 或英文版
+import thinConsole from 'thinconsole/en';
+```
 
-const console = new thinConsole();
+注意：thinConsole 是一个类，必须使用 new 调用；同一时间只允许存在一个实例（单例）。
 
-// 或使用自定义配置
+---
 
-const myConsole = new thinConsole({
+快速开始
 
-id: 'myConsole', // 实例 ID，多实例时必需
+```js
+import thinConsole from 'thinconsole';
 
-text: '调试',     // 按钮文字
-
-color: '#ff4757', // 按钮颜色
-
-theme: 'dark',    // 默认主题 'light' | 'dark'
-
-autoShow: true,   // 是否自动设置按钮位置
-
-plugins: true,    // 是否启用插件系统
-
-disabledPlugins: ['examplePlugin'], // 初始禁用的插件名数组
-
-position: { x: 20, y: 20 } // 初始位置
-
+const tc = new thinConsole({
+  color: '#007aff',
+  theme: 'auto',
+  maxLog: 1e5,
+  maxNetwork: 1000,
+  jsExecute: true,
 });
 
-// 之后您可以像使用普通 console 一样使用它
-
-myConsole.log('这是一条普通日志');
-
-myConsole.error('这是一条错误日志！');
-
-myConsole.Systemlog('这是一条系统日志');
-
+// 页面右下角会出现 "thinConsole" 悬浮按钮，点击即可打开控制台
+tc.show('console', 'all');
 ```
-## 配置选项
 
-| 选项 | 类型 | 默认值 | 描述 |
-| :--- | :--- | :--- | :--- |
-| `id` | `String` | - | **重要**：实例的唯一标识符。多实例时必须设置。 |
-| `text` | `String` | `'thinConsole'` | 浮动按钮上显示的文字。 |
-| `color` | `String` | `'#007aff'` | 浮动按钮的背景颜色。 |
-| `width` | `String` | `'auto'` | 浮动按钮的宽度。 |
-| `height` | `String` | `'auto'` | 浮动按钮的高度。 |
-| `theme` | `String` | `'light'` | 控制台主题，`'light'` 或 `'dark'`。 |
-| `autoShow` | `Boolean` | `true` | 是否自动将按钮放置在右下角。 |
-| `plugins` | `Boolean` | `true` | 是否自动加载可用插件。 |
-| `disabledPlugins` | `Array` | `[]` | 需要禁用的插件名称数组。 |
-| `position` | `Object` | `{x: -30, y: -30}` | 按钮的初始坐标。 |
+之后所有 console.log / info / warn / error / table / time / count ... 都会被自动捕获并展示在控制台面板中，fetch / XHR 请求也会自动记录到网络面板。
 
-## API 参考
+---
 
-### 实例方法
+配置项
 
-通过 `thinConsole` 实例可以调用以下方法：
+选项 类型 默认值 说明
+color string '#007aff' 悬浮按钮背景色
+width string 'auto' 按钮宽度
+height string 'auto' 按钮高度
+theme string 'auto' 'light' / 'dark' / 'auto' / 自定义主题名
+plugins boolean true 是否启用插件系统
+disabledPlugins string[] [] 禁用的插件名列表（可用 enablePlugin() 恢复）
+jsExecute boolean true 是否允许在标题栏输入并执行代码
+pos {x, y} \| null null 悬浮按钮位置；null 表示使用/记忆上次拖动位置
+maxLog number 100000 最大日志条数
+maxNetwork number 1000 最大网络请求记录数
+pluginOption Record<string, object> {} 按插件名传入的插件配置
+filters {id, name}[] \| null null 自定义控制台过滤器（默认使用内置）
+showComments boolean true 元素面板中是否显示 HTML 注释节点
 
-| 方法 | 参数 | 描述 | 返回值 |
-| :--- | :--- | :--- | :--- |
-| `log(...args)` | `...args`: 任何参数 | 记录一条普通日志，等同于 `console.log`。 | `this` (支持链式调用) |
-| `info(...args)` | `...args`: 任何参数 | 记录一条信息日志，等同于 `console.info`。 | `this` |
-| `warn(...args)` | `...args`: 任何参数 | 记录一条警告日志，等同于 `console.warn`。 | `this` |
-| `error(...args)` | `...args`: 任何参数 | 记录一条错误日志，等同于 `console.error`。 | `this` |
-| `Systemlog(...args)` | `...args`: 任何参数 | 记录一条**系统**普通日志。 | `this` |
-| `Systeminfo(...args)` | `...args`: 任何参数 | 记录一条**系统**信息日志。 | `this` |
-| `Systemwarn(...args)` | `...args`: 任何参数 | 记录一条**系统**警告日志。 | `this` |
-| `Systemerror(...args)` | `...args`: 任何参数 | 记录一条**系统**错误日志。 | `this` |
-| `disablePlugin(pluginName)` | `pluginName`: `String` | 禁用一个已加载的插件。 | `this` |
-| `enablePlugin(pluginName)` | `pluginName`: `String` | 启用一个被禁用的插件。 | `this` |
+---
 
-### 全局方法
+面板说明
 
-通过 `window.thinConsole` 调用：
+控制台 Console
 
-| 方法 | 参数 | 描述 |
-| :--- | :--- | :--- |
-| `thinConsole.addPlugin(name, PluginClass, config)` | `name`: `String`<br>`PluginClass`: `Class\|Function`<br>`config`: `Object` | 注册一个全局插件。可以是类（继承自 `tCPlugin`）或函数。 |
-| `thinConsole.addHook(hookName, callback)` | `hookName`: `String`<br>`callback`: `Function` | 注册一个全局生命周期钩子函数。 |
-| `thinConsole.removeHook(hookName, callback)` | `hookName`: `String`<br>`callback`: `Function` | 移除一个全局生命周期钩子函数。 |
+· 自动接管并渲染 console.log / info / warn / error / debug / table / time / timeEnd / count / countReset / assert / trace / group / groupEnd / clear。
+· 重复日志折叠：内容相同的连续日志会合并，并显示重复次数徽标。
+· 日志级别过滤：全部 / 日志 / 信息 / 警告 / 错误。
+· 搜索：
+  · 普通文本：keyword
+  · 正则：/pattern/flags
+  · 强制文本（不解析正则）：#keyword
+· 日志详情：点击日志右侧的 👁 图标打开单条日志详情页，可对内容再次搜索、复制、展开函数源码。
+· 清空日志：点击右上角 🗑，或 console.clear()。
+· 禁用某级别：通过 tc.ban('warn') 隐藏对应过滤器。
 
-### 生命周期钩子 (Hooks)
+网络 Network
 
-可用的钩子名称及其触发时机：
+· 自动拦截 fetch 与 XMLHttpRequest（不影响页面原有行为）。
+· 记录：请求方法、URL、请求头 / 请求体、响应头 / 响应体、状态码、耗时、错误信息。
+· 过滤器：全部 / GET / POST / PUT / 成功 / 失败。
+· 请求详情：URL、方法、状态、请求/响应头、请求/响应体、发送时间，均可单独复制。
+· 重发请求：详情页右上角 ↻。
+· 新建请求：网络标签页右上角 ➕，可手动构造 URL / Method / Body / Headers 发送。
+· 禁用请求：点击 🚫 可禁止当前过滤类型下的请求发出。
+· 清空记录：点击 🗑。
 
-*   `beforeLog(type, ...args)`: 在日志被捕获并输出到原始控制台之前。
-*   `afterLog(logEntry)`: 在日志被处理并存储之后。
-*   `beforeOpen()`: 在控制台覆盖层显示之前。
-*   `afterOpen()`: 在控制台覆盖层显示之后。
-*   `beforeClose()`: 在控制台覆盖层隐藏之前。
-*   `afterClose()`: 在控制台覆盖层隐藏之后。
-*   `beforeClear()`: 在清除所有日志之前。
-*   `afterClear()`: 在清除所有日志之后。
-*   `beforeRender(currentTab)`: 在渲染标签页内容之前。
-*   `afterRender(currentTab)`: 在渲染标签页内容之后。
-*   `pluginMount(pluginName, pluginInstance)`: 在插件挂载完成后。
-*   `pluginUnmount(pluginName)`: 在插件卸载后。
+存储 Storage
 
-**示例：使用钩子**
+· 支持 本地存储 / 会话存储 / Cookies 三类。
+· 查看、编辑、复制、删除任意键值。
+· 新建：点击右上角 ➕。
+· 支持 JSON 美化显示（自动识别 JSON 字符串并渲染树）。
+· 支持搜索（同控制台的 # 与 /regex/ 语法）。
 
-```javascript
+元素 Elements
 
-function myBeforeOpenHook() {
+· 以树状结构展示 document.documentElement 的完整 DOM。
+· 点选元素：点击顶部 🖱 图标后，鼠标移动到页面上高亮目标元素，点击即可定位。
+· 复制元素：复制选中元素的 outerHTML。
+· 删除元素：删除选中元素（含 Shadow DOM 支持，closed 模式除外）。
+· 支持 Shadow DOM 展开：open 与 closed 模式均可查看（框架在运行时 hook 了 attachShadow）。
+· DOM 变化时自动增量刷新。
 
-console.log('控制台即将打开！');
+---
 
-}
+实例 API
 
-thinConsole.addHook('beforeOpen', myBeforeOpenHook);
+生命周期
 
+```js
+const tc = new thinConsole(options);
+
+tc.show(tab?, filterName?);   // 显示控制台（可同时切换 tab / 过滤器）
+tc.hide();                    // 隐藏
+tc.destroy();                 // 销毁实例（移除 DOM、卸载插件）
+const tc2 = tc.setOption({}); // 销毁并以新配置重建，返回新实例
+tc.switch('network', 'all');  // 切换 tab，可选切换过滤器
 ```
-## 插件开发
 
-您可以创建插件来扩展 `thinConsole` 的功能。
+插件管理
 
-### 1. 创建插件类
+```js
+tc.addPlugin('myPlugin', MyPlugin);
+tc.enablePlugin('myPlugin');
+tc.disablePlugin('myPlugin');
+tc.destroyPlugin('myPlugin');
+```
 
-插件类应继承自 `tCPlugin`。
+其他
 
-```javascript
+```js
+tc.ban('warn');          // 隐藏"警告"过滤器
+tc.ban('warn', false);   // 恢复
+tc.ban();                // 隐藏所有过滤器
 
-// my-plugin.js
+tc.showNotification('已保存');
+tc.showNotification('失败', 'warning');
 
-class MyAwesomePlugin extends tCPlugin {
+tc.applyIcon({ copy: '448|M...' });
+tc.applyCSS('.my-class { color: red; }');
 
-init() {
+tc.escapeHtml('<div>');
+tc.safeStringify(obj, 2);
+tc.icon('copy');
+tc.triggerHook('myEvent', 1, 2);
+```
 
-// 插件初始化逻辑，例如绑定事件、设置初始状态
+storage
 
-this.console.log(
-"插件 ${this.id} 已初始化！");
+```js
+tc.storage.local.get('key');
+tc.storage.local.set('key', 'value');
+tc.storage.local.remove('key');
+tc.storage.local.clear();
 
-}
+tc.storage.session.get('key');
+tc.storage.cookie.set('key', 'value', 7); // 7 天有效期
+```
 
-// 可选：返回一个标签页配置对象，用于在控制台中创建新标签页
-addTab() {
-    return {
-        id: 'myPluginTab', // 标签页唯一ID
-        name: '我的插件',   // 标签页显示名称
-        icon: 'fa fa-rocket' // 标签页图标 (Font Awesome)
+虚拟列表
+
+```js
+const vl = tc.createVirtualList(container, {
+  initialData: list,
+  itemHeight: 60,
+  renderItem: (item) => `<div>${item.name}</div>`,
+  emptyHTML: '<div class="nolog">暂无数据</div>',
+  trackBy: (item) => item.id,
+});
+
+vl.update(newList);
+vl.render();
+vl.destroy();
+```
+
+---
+
+静态 API
+
+所有实例方法都有对应的静态快捷方式（作用于当前单例）：
+
+```js
+thinConsole.show('console', 'error');
+thinConsole.hide();
+thinConsole.switch('network', 'failed');
+thinConsole.destroy();
+thinConsole.setOption({ theme: 'dark' });
+
+thinConsole.log('hello');
+thinConsole.info('info');
+thinConsole.warn('warn');
+thinConsole.error('error');
+
+thinConsole.ban('warn');
+
+thinConsole.addTheme('myTheme', '--console:#000;--text:#fff;', { copy: '448|M...' });
+thinConsole.addHeader('copy', 'my-btn', () => alert('hi'));
+
+thinConsole.addHook('afterInit', function () {
+  console.log('console 已初始化');
+});
+thinConsole.removeHook('afterInit', handler);
+thinConsole.triggerHook('myEvent', payload);
+
+thinConsole.addPlugin('myPlugin', MyPlugin);
+thinConsole.enablePlugin('myPlugin');
+thinConsole.disablePlugin('myPlugin');
+
+thinConsole.setFilterCounts({ log: 10, warn: { filterCount: 3, exactCount: 3 } });
+```
+
+addHeader
+
+```js
+const btn = thinConsole.addHeader('copy', 'btn-copy', () => alert('hi'));
+
+// 支持在返回的 controller 上继续绑定/解绑事件
+btn.on('click', () => {});
+btn.off('click');
+btn.remove(); // 移除按钮并释放槽位
+```
+
+---
+
+插件系统
+
+插件必须是继承 tCPlugin 的类（函数式插件已废弃，请使用 Hooks）：
+
+```js
+class MyPlugin extends thinConsole.tCPlugin {
+  constructor(tC) {
+    super(tC);
+    this.id = 'myPlugin';
+  }
+
+  init() {
+    // 读取自己的 pluginOption
+    console.log(this.pluginOption);
+
+    // 使用独立的 store 命名空间（拥有者视图）
+    this.store.set('counter', 0, false); // false 表示锁为私有
+  }
+
+  addTab() {
+    return { id: 'myPlugin', name: '我的面板', icon: 'plug' };
+  }
+
+  render(container) {
+    container.innerHTML = '<button id="inc">+1</button>';
+    container.querySelector('#inc').onclick = () => {
+      const next = (this.store.get('counter') || 0) + 1;
+      this.store.set('counter', next);
     };
+  }
+
+  onShow() {}
+  onHide() {}
+  destroy() {}
 }
 
-// 可选：当插件标签页被显示时调用
-onShow() {
-    // 可以在这里获取最新数据
-}
-
-// 可选：用于渲染插件标签页的内容
-render(container) {
-    container.innerHTML = `
-        <h2>欢迎使用我的插件！</h2>
-        <p>当前配置：${JSON.stringify(this.config)}</p >
-        <button onclick="alert('来自插件！')">点击我</button>
-    `;
-}
-
-// 可选：清理工作
-destroy() {
-    this.console.log(`插件 ${this.id} 已被销毁。`);
-}
-
-}
-
-```
-### 2. 注册插件
-
-在您的应用代码中注册插件：
-
-```javascript
-
-// 注册插件，并传递配置
-
-thinConsole.addPlugin('myAwesomePlugin', MyAwesomePlugin, { someOption: true });
-
-// 初始化控制台实例
-
-const console = new thinConsole({ id: 'mainConsole' });
-
-// 插件会自动加载（除非在 disabledPlugins 中禁用）
-
-```
-### 3. 函数式插件
-
-您也可以注册一个简单的函数作为插件。
-
-```javascript
-
-function simplePlugin(consoleInstance, config) {
-
-consoleInstance.log('这是一个简单的函数插件！', config);
-
-}
-
-thinConsole.addPlugin('simplePlugin', simplePlugin, { message: 'Hello' });
-
-```
-## 多实例支持
-
-通过配置不同的 `id`，可以创建多个独立的 `thinConsole` 实例。
-
-```javascript
-
-const console1 = new thinConsole({ id: 'console_1', text: '控制台1', color: 'red' });
-
-const console2 = new thinConsole({ id: 'console_2', text: '控制台2', color: 'blue' });
-
-// 可以通过 thinConsole.instances 访问所有实例
-
-thinConsole.instances['console_1'].log('来自控制台1');
+thinConsole.addPlugin('myPlugin', MyPlugin);
 ```
 
-## 注意事项
+实例化时传入 pluginOption：
 
-1.  **依赖**: 该库自动从 CDN 加载 Font Awesome v6，用于图标显示。
-2.  **样式冲突**: 库会向 `<head>` 注入大量 CSS 样式，请确保不会与您项目的样式发生冲突。
-3.  **性能**: 捕获大量复杂的对象日志可能会轻微影响性能，建议在生产环境中禁用或谨慎使用。
-4.  **错误处理**: 库会监听全局 `error` 和 `unhandledrejection` 事件，并自动将其记录为错误日志。
+```js
+new thinConsole({
+  pluginOption: {
+    myPlugin: { foo: 'bar' },
+  },
+});
+```
 
-## 浏览器兼容性
+插件基类提供的工具方法：
 
-适用于所有支持 ES6+ 和现代 DOM API 的现代浏览器（如 Chrome, Firefox, Safari, Edge 等）。
+· this.iszh() / this.isen() — 返回当前构建包的语言常量（中文包 / 英文包）
+· this.isMobile() — 是否移动端 UA
+· this.tC — 沙箱化的 thinConsole 实例（读取 OK，写入 options / pluginOption 会被拦截）
+· this.store — 拥有者视图的 Store（见下）
 
-## 许可证
+---
+
+共享 Store
+
+用于在插件之间安全地共享可写状态（Hooks 只适合通知，不适合传状态）。
+
+```js
+// 共享视图（无归属）
+tc.store.set('theme', 'dark');
+tc.store.get('theme');
+tc.store.remove('theme');
+
+// 拥有者视图（在插件内部 this.store）
+this.store.set('theme', 'dark', false); // false = 锁定为私有
+this.store.set('theme', 'light', true); // true = 解锁
+this.store.writeable('theme', false);   // 只改锁状态
+
+// 订阅
+const off = tc.store.subscribe('theme', (value, key, oldValue) => {
+  console.log(key, oldValue, '->', value);
+});
+off();
+```
+
+要点：
+
+· 键可以被 set(..., false) 锁定为某个插件私有，其他插件无法覆写/删除。
+· 匿名写入（tc.store.set）的键是公共键，任何人均可写/删。
+· remove(key) 会通知订阅者 (undefined, key, oldValue)，然后自动解绑该键的所有订阅。
+
+---
+
+Hooks
+
+Hooks 是只读的事件通知机制，用于订阅 thinConsole 内部生命周期。
+
+内置 Hooks：
+
+Hook 触发时机 参数
+afterInit 实例初始化完成 (tc)
+beforeRender 每次渲染前 (tabId)
+afterRender 每次渲染后 (tabId)
+beforeLog 捕获日志前 (type, ...args)
+afterLog 生成日志条目后 (logItem)
+beforeOpen 打开控制台前 -
+afterOpen 打开控制台后 -
+beforeClose 关闭控制台前 -
+afterClose 关闭控制台后 -
+beforeClear 清空前 -
+afterClear 清空后 -
+pluginMount 插件挂载 (name, plugin)
+pluginUnmount 插件卸载 (name)
+
+```js
+thinConsole.addHook('afterLog', (logItem) => {
+  console.log('新日志：', logItem.type, logItem.args);
+});
+
+thinConsole.addHook('afterInit', onInit, true); // 一次性
+
+thinConsole.removeHook('afterLog', handler);
+```
+
+Hooks 名称无需预注册，任意字符串都会自动创建。推荐命名空间写法：plugin:event。
+
+---
+
+主题
+
+内置主题
+
+theme: 'light' | 'dark' | 'auto'。auto 会跟随系统 prefers-color-scheme。
+
+自定义主题
+
+```js
+thinConsole.addTheme(
+  'nord',
+  `
+    --console:#2e3440;
+    --header:#3b4252;
+    --text:#eceff4;
+    --filter-on:#88c0d0;
+    --json-key:#8fbcbb;
+  `,
+  {
+    copy: '448|M192 0c-35.3 ...',
+  }
+);
+
+const tc = new thinConsole({ theme: 'nord' });
+```
+
+可覆盖的 CSS 变量（节选）：
+
+变量 说明
+--console / --header / --controls 背景色
+--text 主文本色
+--border 边框色
+--log 日志条目背景
+--filter-on 选中态颜色
+--json-key / --json-str / --json-num / --json-bool / --json-null / --json-cmt JSON 树配色
+--log-warn / --log-warn-i / --log-err-i / --log-info 日志级别配色
+
+---
+
+图标
+
+图标格式为 "viewBox|path.d"。可通过 applyIcon 或 addTheme(name, styles, icons) 覆盖：
+
+```js
+tc.applyIcon({
+  copy: '448|M192 0c-35.3 0-64 28.7-64 64v256...',
+});
+```
+
+内置图标：angle-down、angle-right、arrow-left、ban、check、check-circle、chevron-down、chevron-up、code、copy、database、download、edit、exclamation、exclamation-triangle、eye、info、info-circle、list、mouse-pointer、pen、plug、plus、redo、search、table、terminal、times、times-circle、trash、upload、wifi、window-restore、cookie-bite。
+
+---
+
+TypeScript
+
+包内提供完整的类型定义 thinConsole.d.ts：
+
+```ts
+import thinConsole = require('thinconsole');
+
+const tc = new thinConsole({
+  theme: 'auto',
+  maxLog: 50000,
+});
+
+thinConsole.addHook('afterLog', function (logItem) {
+  console.log(logItem.type);
+});
+
+class MyPlugin extends thinConsole.tCPlugin {
+  init() {
+    this.store.set('ready', true);
+  }
+}
+
+thinConsole.addPlugin('my', MyPlugin);
+```
+
+switch 是保留字，被声明为带引号的静态成员：
+
+```ts
+thinConsole['switch']('network', 'all');
+```
+
+运行时 thinConsole.switch(...) 同样可用。
+
+---
+
+文件说明
+
+文件 说明
+thinConsole.min.js 中文版（默认）
+en.thinConsole.min.js 英文版
+thinConsole.d.ts 类型定义
+
+两个构建包 API 完全一致，仅界面文案与 iszh() / isen() 返回值不同。
+
+---
+
+License
 
 MIT
